@@ -2,95 +2,137 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import io
-from datetime import datetime
 
-st.set_page_config(page_title="Sales Performance Dashboard", layout="wide")
-st.title("📊 Sales Performance Dashboard")
+# Set Streamlit page config
+st.set_page_config(page_title="📊 Sales Performance Dashboard", layout="wide")
+st.title("📈 Sales Performance Dashboard")
 
-# Sidebar - Dataset Selection
-st.sidebar.header("📁 Select Dataset")
+# Sidebar - Upload or Use Default Dataset
+st.sidebar.header("📂 Select Dataset")
 dataset_option = st.sidebar.radio("Choose Dataset:", ("Default Superstore Data", "Upload Your Own"))
 
+# Load Default or Uploaded Data
+def load_default_data():
+    return pd.read_excel("sales_data.xlsx", engine='openpyxl')
+
+def load_user_data(uploaded_file):
+    try:
+        if uploaded_file.name.endswith('.csv'):
+            return pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith('.xlsx'):
+            return pd.read_excel(uploaded_file, engine='openpyxl')
+        else:
+            st.warning("Unsupported file type. Please upload .csv or .xlsx")
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading file: {e}")
+        return pd.DataFrame()
+
 if dataset_option == "Upload Your Own":
-    uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
-    if uploaded_file is not None:
-        df = pd.read_excel(uploaded_file, engine="openpyxl")
+    uploaded_file = st.sidebar.file_uploader("Upload your dataset (.csv or .xlsx)", type=["csv", "xlsx"])
+    if uploaded_file:
+        df = load_user_data(uploaded_file)
     else:
-        st.warning("Please upload a valid Excel file to proceed.")
-        st.stop()
+        df = pd.DataFrame()
 else:
-    df = pd.read_excel("sales_data.xlsx", engine="openpyxl")
+    df = load_default_data()
 
-# --- Sidebar Filters ---
-st.sidebar.header("🎯 Filter Sales Data")
-region = st.sidebar.multiselect("Select Region", options=df["Region"].unique(), default=df["Region"].unique())
-category = st.sidebar.multiselect("Select Category", options=df["Category"].unique(), default=df["Category"].unique())
+# If data is loaded
+if not df.empty:
 
-# Convert Order Date to datetime format
-df["Order Date"] = pd.to_datetime(df["Order Date"])
-min_date = df["Order Date"].min()
-max_date = df["Order Date"].max()
-date_range = st.sidebar.date_input("Select Date Range", [min_date, max_date])
+    st.sidebar.header("🎯 Filter Your Data")
 
-# --- Filter Data ---
-df_filtered = df[
-    (df["Region"].isin(region)) &
-    (df["Category"].isin(category)) &
-    (df["Order Date"] >= pd.to_datetime(date_range[0])) &
-    (df["Order Date"] <= pd.to_datetime(date_range[1]))
-]
+    # Filters
+    if 'Region' in df.columns:
+        regions = st.sidebar.multiselect("Region", sorted(df['Region'].dropna().unique()))
+        if regions:
+            df = df[df['Region'].isin(regions)]
 
-# --- Main Dashboard KPIs ---
-total_sales = int(df_filtered["Sales"].sum())
-total_profit = int(df_filtered["Profit"].sum())
-total_orders = df_filtered["Order ID"].nunique()
+    if 'Category' in df.columns:
+        categories = st.sidebar.multiselect("Category", sorted(df['Category'].dropna().unique()))
+        if categories:
+            df = df[df['Category'].isin(categories)]
 
-col1, col2, col3 = st.columns(3)
-col1.metric("💰 Total Sales", f"${total_sales:,}")
-col2.metric("📦 Total Orders", f"{total_orders:,}")
-col3.metric("📈 Total Profit", f"${total_profit:,}")
+    if 'Segment' in df.columns:
+        segments = st.sidebar.multiselect("Segment", sorted(df['Segment'].dropna().unique()))
+        if segments:
+            df = df[df['Segment'].isin(segments)]
 
-st.markdown("---")
+    if 'Order Date' in df.columns:
+        df['Order Date'] = pd.to_datetime(df['Order Date'], errors='coerce')
+        min_date = df['Order Date'].min()
+        max_date = df['Order Date'].max()
+        date_range = st.sidebar.date_input("Order Date Range", [min_date, max_date])
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            df = df[(df['Order Date'] >= pd.to_datetime(start_date)) & (df['Order Date'] <= pd.to_datetime(end_date))]
 
-# --- Visualizations ---
+    # Sorting
+    st.sidebar.header("⬇️ Sort Data")
+    sort_columns = st.sidebar.multiselect("Sort By", df.columns.tolist())
+    sort_order = st.sidebar.radio("Sort Order", ["Ascending", "Descending"])
+    if sort_columns:
+        df = df.sort_values(by=sort_columns, ascending=(sort_order == "Ascending"))
 
-# Sales by Region
-fig_region = px.bar(df_filtered.groupby("Region")["Sales"].sum().reset_index(),
-                    x="Region", y="Sales", color="Region",
-                    title="Sales by Region")
-st.plotly_chart(fig_region, use_container_width=True)
+    # Show Data
+    st.subheader("📄 Filtered Data Table")
+    st.dataframe(df, use_container_width=True)
 
-# Sales Over Time
-fig_time = px.line(df_filtered.groupby("Order Date")["Sales"].sum().reset_index(),
-                   x="Order Date", y="Sales",
-                   title="Sales Over Time")
-st.plotly_chart(fig_time, use_container_width=True)
+    # Visualizations
+    st.markdown("---")
+    st.subheader("📊 Data Visualizations")
 
-# Category-wise Sales
-fig_category = px.pie(df_filtered, values="Sales", names="Category",
-                      title="Category-wise Sales Distribution")
-st.plotly_chart(fig_category, use_container_width=True)
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
+    col5, col6 = st.columns(2)
 
-# --- Download Filtered Data ---
+    with col1:
+        if 'Category' in df.columns and 'Sales' in df.columns:
+            fig1 = px.bar(df.groupby('Category')['Sales'].sum().reset_index(), x='Category', y='Sales',
+                         title='Sales by Category', color='Category')
+            st.plotly_chart(fig1, use_container_width=True)
 
-@st.cache_data
-def convert_df(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    processed_data = output.getvalue()
-    return processed_data
+    with col2:
+        if 'Order Date' in df.columns and 'Sales' in df.columns:
+            fig2 = px.line(df.groupby('Order Date')['Sales'].sum().reset_index(),
+                          x='Order Date', y='Sales', title='Sales Over Time')
+            st.plotly_chart(fig2, use_container_width=True)
 
-data = convert_df(df_filtered)
+    with col3:
+        if 'Region' in df.columns and 'Sales' in df.columns:
+            fig3 = px.pie(df, values='Sales', names='Region', title='Sales by Region')
+            st.plotly_chart(fig3, use_container_width=True)
 
-st.download_button(
-    label="📥 Download Filtered Data",
-    data=data,
-    file_name="filtered_sales_data.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+    with col4:
+        if 'Sub-Category' in df.columns and 'Profit' in df.columns:
+            fig4 = px.bar(df.groupby('Sub-Category')['Profit'].sum().reset_index(),
+                         x='Sub-Category', y='Profit', title='Profit by Sub-Category', color='Profit')
+            st.plotly_chart(fig4, use_container_width=True)
 
-# --- Display Filtered Table ---
-st.markdown("---")
-st.subheader("📄 Filtered Sales Data Table")
-st.dataframe(df_filtered, use_container_width=True)
+    with col5:
+        if 'Ship Mode' in df.columns and 'Sales' in df.columns:
+            fig5 = px.pie(df, values='Sales', names='Ship Mode', title='Sales by Ship Mode')
+            st.plotly_chart(fig5, use_container_width=True)
+
+    with col6:
+        if 'Discount' in df.columns and 'Sales' in df.columns:
+            fig6 = px.scatter(df, x='Discount', y='Sales', size=df['Profit'].abs(), color='Category',
+                  title='Sales vs Discount with Absolute Profit Size')
+
+            st.plotly_chart(fig6, use_container_width=True)
+
+    # Download Filtered Data
+    st.subheader("📥 Download Filtered Data")
+    @st.cache_data
+    def convert_df(df):
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+        processed_data = output.getvalue()
+        return processed_data
+
+    data = convert_df(df)
+    st.download_button("⬇️ Download Excel File", data, "filtered_data.xlsx")
+
+else:
+    st.warning("Please upload a dataset or select a valid file.")
