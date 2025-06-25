@@ -2,7 +2,7 @@
 
 An interactive, real-time sales analytics dashboard built using **Streamlit**, **Pandas**, and **Plotly**.
 [
-🔗 [Live Demo](https://sales-performance-dashboard-vmmcmgvhjxx3kdhjkbujwc.streamlit.app/)
+🔗 [Live Demo](https://sales-performance-dashboard-vmmcmgvhjxx3kdhjkbujwc.streamlit.app/)]
 
 ## 📌 Features:
 - Filter by Region, Category, and Date Range
