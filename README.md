@@ -3,7 +3,7 @@
 An interactive and responsive sales analytics dashboard built using **Streamlit**, **Pandas**, and **Plotly**.  
 It allows users to explore sales data through dynamic filters, visualizations, and exportable tables.
 
-👉 **[🔗 Live Demo](https://sales-performance-dashboard-vmmcmgvhjxx3kdhjkbujwc.streamlit.app/)**
+👉 **[🔗 Live Demo](https://sales-performance-dashboard-gaqjvkmnlvvtrfppvrkbwj.streamlit.app/)**
 
 ---
 
