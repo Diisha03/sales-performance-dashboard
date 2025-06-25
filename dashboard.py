@@ -1,176 +1,96 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import plotly.express as px
-import io  # for download
+import io
+from datetime import datetime
 
-# ---------------------- PAGE CONFIG ----------------------
-st.set_page_config(page_title="📊 Sales Dashboard", layout="wide")
+st.set_page_config(page_title="Sales Performance Dashboard", layout="wide")
+st.title("📊 Sales Performance Dashboard")
 
-# ---------------------- LOAD DATA ----------------------
-df = pd.read_excel("sales_data.xlsx")
-df.columns = [col.strip() for col in df.columns]
+# Sidebar - Dataset Selection
+st.sidebar.header("📁 Select Dataset")
+dataset_option = st.sidebar.radio("Choose Dataset:", ("Default Superstore Data", "Upload Your Own"))
+
+if dataset_option == "Upload Your Own":
+    uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=["xlsx"])
+    if uploaded_file is not None:
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+    else:
+        st.warning("Please upload a valid Excel file to proceed.")
+        st.stop()
+else:
+    df = pd.read_excel("sales_data.xlsx", engine="openpyxl")
+
+# --- Sidebar Filters ---
+st.sidebar.header("🎯 Filter Sales Data")
+region = st.sidebar.multiselect("Select Region", options=df["Region"].unique(), default=df["Region"].unique())
+category = st.sidebar.multiselect("Select Category", options=df["Category"].unique(), default=df["Category"].unique())
+
+# Convert Order Date to datetime format
 df["Order Date"] = pd.to_datetime(df["Order Date"])
+min_date = df["Order Date"].min()
+max_date = df["Order Date"].max()
+date_range = st.sidebar.date_input("Select Date Range", [min_date, max_date])
 
-# ---------------------- SIDEBAR ----------------------
-with st.sidebar:
-    st.title("🔍 Filter Sales Data")
-
-    region = st.multiselect("📍 Select Region", df["Region"].unique(), default=df["Region"].unique())
-    category = st.multiselect("🧩 Select Category", df["Category"].unique(), default=df["Category"].unique())
-
-    min_date = df["Order Date"].min()
-    max_date = df["Order Date"].max()
-
-    st.markdown("## 🗓️ Select Date Range")
-    start_date, end_date = st.date_input(
-        "Order Date Range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date
-    )
-
-# ---------------------- DATA FILTERING ----------------------
+# --- Filter Data ---
 df_filtered = df[
     (df["Region"].isin(region)) &
     (df["Category"].isin(category)) &
-    (df["Order Date"] >= pd.to_datetime(start_date)) &
-    (df["Order Date"] <= pd.to_datetime(end_date))
+    (df["Order Date"] >= pd.to_datetime(date_range[0])) &
+    (df["Order Date"] <= pd.to_datetime(date_range[1]))
 ]
 
-# ---------------------- METRICS ----------------------
-total_sales = round(df_filtered["Sales"].sum(), 2)
-total_profit = round(df_filtered["Profit"].sum(), 2)
-total_quantity = int(df_filtered["Quantity"].sum())
-profit_margin = round((total_profit / total_sales) * 100, 2) if total_sales else 0
+# --- Main Dashboard KPIs ---
+total_sales = int(df_filtered["Sales"].sum())
+total_profit = int(df_filtered["Profit"].sum())
+total_orders = df_filtered["Order ID"].nunique()
 
-# ---------------------- CUSTOM STYLES ----------------------
-st.markdown("""
-    <style>
-    .kpi-card {
-        background-color: #f0f9ff;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0px 2px 8px rgba(0,0,0,0.08);
-        text-align: center;
-        transition: transform 0.2s;
-    }
-    .kpi-card:hover {
-        transform: scale(1.02);
-    }
-    .kpi-title {
-        font-size: 18px;
-        color: #555;
-    }
-    .kpi-value {
-        font-size: 26px;
-        font-weight: bold;
-        color: #007bff;
-    }
-    </style>
-""", unsafe_allow_html=True)
+col1, col2, col3 = st.columns(3)
+col1.metric("💰 Total Sales", f"${total_sales:,}")
+col2.metric("📦 Total Orders", f"{total_orders:,}")
+col3.metric("📈 Total Profit", f"${total_profit:,}")
 
-# ---------------------- DASHBOARD TITLE ----------------------
-st.markdown("<h1 style='text-align: center; color: #1f77b4;'>✨ Real-Time Sales Performance Dashboard</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ---------------------- KPI CARDS ----------------------
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>💰 Total Sales</div>
-            <div class='kpi-value'>₹{total_sales:,.2f}</div>
-        </div>
-    """, unsafe_allow_html=True)
-with col2:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>📈 Total Profit</div>
-            <div class='kpi-value'>₹{total_profit:,.2f}</div>
-        </div>
-    """, unsafe_allow_html=True)
-with col3:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>📦 Total Quantity</div>
-            <div class='kpi-value'>{total_quantity}</div>
-        </div>
-    """, unsafe_allow_html=True)
-with col4:
-    st.markdown(f"""
-        <div class='kpi-card'>
-            <div class='kpi-title'>📊 Profit Margin</div>
-            <div class='kpi-value'>{profit_margin}%</div>
-        </div>
-    """, unsafe_allow_html=True)
+# --- Visualizations ---
 
-st.markdown("## ")
+# Sales by Region
+fig_region = px.bar(df_filtered.groupby("Region")["Sales"].sum().reset_index(),
+                    x="Region", y="Sales", color="Region",
+                    title="Sales by Region")
+st.plotly_chart(fig_region, use_container_width=True)
 
-# ---------------------- CHART 1: Monthly Sales Trend ----------------------
-df_filtered["Month"] = df_filtered["Order Date"].dt.to_period("M").dt.to_timestamp()
-monthly_sales = df_filtered.groupby("Month")["Sales"].sum().reset_index()
+# Sales Over Time
+fig_time = px.line(df_filtered.groupby("Order Date")["Sales"].sum().reset_index(),
+                   x="Order Date", y="Sales",
+                   title="Sales Over Time")
+st.plotly_chart(fig_time, use_container_width=True)
 
-fig_line = px.line(
-    monthly_sales,
-    x="Month", y="Sales",
-    title="📅 Monthly Sales Trend",
-    markers=True,
-    template="plotly_white",
-    color_discrete_sequence=["#1f77b4"]
-)
-fig_line.update_layout(title_x=0.4)
+# Category-wise Sales
+fig_category = px.pie(df_filtered, values="Sales", names="Category",
+                      title="Category-wise Sales Distribution")
+st.plotly_chart(fig_category, use_container_width=True)
 
-# ---------------------- CHART 2: Top 10 Products ----------------------
-top_products = df_filtered.groupby("Product Name")["Sales"].sum().nlargest(10).sort_values()
-fig_bar = px.bar(
-    x=top_products.values,
-    y=top_products.index,
-    orientation="h",
-    title="🏆 Top 10 Products by Sales",
-    template="plotly_white",
-    color_discrete_sequence=["#ff7f0e"]
-)
-fig_bar.update_layout(title_x=0.4)
+# --- Download Filtered Data ---
 
-# ---------------------- DISPLAY CHARTS ----------------------
-left, right = st.columns(2)
-with left:
-    st.plotly_chart(fig_line, use_container_width=True)
-with right:
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-# ---------------------- CHART 3: Category Pie Chart ----------------------
-category_sales = df_filtered.groupby("Category")["Sales"].sum().reset_index()
-fig_pie = px.pie(
-    category_sales,
-    names="Category",
-    values="Sales",
-    title="🧩 Category-Wise Sales Share",
-    color_discrete_sequence=px.colors.sequential.RdBu
-)
-fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-fig_pie.update_layout(title_x=0.4)
-
-st.plotly_chart(fig_pie, use_container_width=True)
-
-# ---------------------- DOWNLOAD EXCEL BUTTON ----------------------
-st.markdown("### 📥 Download Filtered Data")
 @st.cache_data
 def convert_df(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Filtered Data')
-    return output.getvalue()
+        df.to_excel(writer, index=False)
+    processed_data = output.getvalue()
+    return processed_data
 
-excel_data = convert_df(df_filtered)
+data = convert_df(df_filtered)
 
 st.download_button(
-    label="Download as Excel",
-    data=excel_data,
+    label="📥 Download Filtered Data",
+    data=data,
     file_name="filtered_sales_data.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# ---------------------- FOOTER ----------------------
+# --- Display Filtered Table ---
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray;'>🚀 Built with ❤️ using Streamlit | Data: Superstore Sales</p>", unsafe_allow_html=True)
+st.subheader("📄 Filtered Sales Data Table")
+st.dataframe(df_filtered, use_container_width=True)
